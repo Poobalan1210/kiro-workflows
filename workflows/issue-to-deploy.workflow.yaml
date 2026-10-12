@@ -1,0 +1,220 @@
+# Save as .kiro/workflows/issue-to-deploy.workflow.yaml in your project.
+#
+# Takes a GitHub issue from "picked up" to "deployed to staging":
+#   read the issue -> plan -> build -> code review + security review (side
+#   by side) -> fix and re-review until both approve -> run every check ->
+#   push and open a draft PR -> wait for CI -> deploy to staging after you
+#   say yes.
+#
+# Needs: git, a GitHub remote, and the GitHub CLI (gh) installed and signed in.
+# Add .kiro/workflow-output/ to your .gitignore.
+#
+# Each step names a model picked for its job. Check the IDs against your
+# model picker before the first run, or delete a modelId line to use the
+# model of the chat that starts the run.
+
+name: issue-to-deploy
+description: GitHub issue to staging deploy, with code and security review and a model chosen per step
+inputs:
+  issue: string
+  deploy: prompt
+
+steps:
+  - type: step
+    id: intake
+    agent: wf-planner
+    modelId: qwen3-coder-next
+    artifacts:
+      brief: .kiro/workflow-output/issue-to-deploy/issue.md
+    prompt: >
+      Read GitHub issue {{issue}} with
+      `gh issue view {{issue}} --json number,title,body,labels,comments`.
+      Don't edit any project files.
+
+      Write .kiro/workflow-output/issue-to-deploy/issue.md with the issue
+      number and title, what is being asked in plain words, the acceptance
+      criteria (copy them if the issue has them, otherwise derive them and
+      mark them as derived), and any open questions.
+
+      If the issue is too vague to build from, call send_message with
+      severity warning and ask your questions. When you have answers, add
+      them to the brief. Finish with send_message severity success and a
+      one-line summary.
+
+  - type: step
+    id: plan
+    agent: wf-planner
+    modelId: minimax-m2.5
+    artifacts:
+      plan: .kiro/workflow-output/issue-to-deploy/plan.md
+    prompt: >
+      Plan the change described in {{artifacts.brief}}. Read the code it
+      touches, and find out how this project runs its tests, linter, type
+      checks and build (look at the README, package files, Makefile, CI
+      config and steering files). Don't edit any project files.
+
+      Write .kiro/workflow-output/issue-to-deploy/plan.md: the files to
+      change, the steps in order, the tests to add, the exact check
+      commands, any decision the issue leaves open with a one-line reason,
+      and a "Security notes" section listing anything that touches user
+      input, auth, secrets, file or network access, or dependencies.
+
+      Finally write {"verdict": "PENDING", "findings": []} to both
+      code-review.json and security-review.json in
+      .kiro/workflow-output/issue-to-deploy/, and write
+      {"verdict": "PENDING"} to gate.json in the same folder. That resets
+      the review loop for this run.
+
+  - type: repeat
+    id: build-and-review
+    maxIterations: 3
+    onMaxIterations: pause
+    stopCondition:
+      fileCheck:
+        path: .kiro/workflow-output/issue-to-deploy/gate.json
+        jsonPath: verdict
+        value: APPROVED
+    steps:
+      - type: step
+        id: build
+        agent: wf-coder
+        modelId: qwen3-coder-next
+        prompt: >
+          If you're on the repository's default branch, create and switch to
+          a branch named issue-<number>-<short-slug> first. Otherwise stay on
+          the current branch.
+
+          Implement the plan in {{artifacts.plan}}. Before you start, read
+          code-review.json and security-review.json in
+          .kiro/workflow-output/issue-to-deploy/ and fix every blocking
+          finding in them first.
+
+          Match the style of the code around you and add tests. Run the
+          check commands from the plan. Commit with a message that refers to
+          the issue, but don't push, and never commit anything under
+          .kiro/workflow-output/. If a check still fails, say so in your
+          reply instead of stopping.
+
+          Reply with what you changed, which findings you fixed, the
+          commands you ran and their results. Finish with send_message
+          severity success.
+
+      - type: parallel
+        id: reviews
+        joinPolicy: all
+        branches:
+          - type: step
+            id: code-review
+            agent: semantic_reviewer
+            modelId: claude-sonnet-5
+            prompt: >
+              Review this branch with fresh eyes: everything it changes
+              compared with the default branch. Ignore
+              .kiro/workflow-output/. Don't edit any project files.
+
+              The issue is in {{artifacts.brief}} and the plan is in
+              {{artifacts.plan}}. Check that the change meets every
+              acceptance criterion, handles errors and edge cases, fits the
+              code around it, and has tests. Run the check commands from the
+              plan yourself.
+
+              Write .kiro/workflow-output/issue-to-deploy/code-review.json as
+              {"verdict": "APPROVED" or "REVISE", "findings": [{"severity":
+              "blocking" or "minor", "where": "file:line", "issue": "...",
+              "fix": "..."}]}. Approve only when nothing blocking is left,
+              and don't invent problems. Finish with send_message severity
+              success, whatever the verdict.
+
+          - type: step
+            id: security-review
+            agent: semantic_reviewer
+            modelId: glm-5
+            prompt: >
+              Do a security review of this branch: everything it changes
+              compared with the default branch. Ignore
+              .kiro/workflow-output/. Don't edit any project files.
+
+              Use the "Security notes" in {{artifacts.plan}} as a starting
+              point. Look for injection, missing auth or permission checks,
+              secrets or keys in code or config, unsafe handling of user
+              input, files or paths, sensitive data in logs or error
+              messages, and new or changed dependencies with known
+              vulnerabilities. Run the project's dependency audit and any
+              security scanner it already uses, such as npm audit,
+              pip-audit, govulncheck, Semgrep or gitleaks. Report anything
+              you couldn't check.
+
+              Write .kiro/workflow-output/issue-to-deploy/security-review.json
+              in the same format as the code review: {"verdict": "APPROVED"
+              or "REVISE", "findings": [{"severity": "blocking" or "minor",
+              "where": "file:line", "issue": "...", "fix": "..."}]}. Real,
+              exploitable problems are blocking; hardening ideas are minor.
+              Don't invent problems. Finish with send_message severity
+              success, whatever the verdict.
+
+      - type: step
+        id: gate
+        agent: wf-review-aggregator
+        modelId: claude-haiku-4.5
+        prompt: >
+          Read code-review.json and security-review.json in
+          .kiro/workflow-output/issue-to-deploy/. Write gate.json in the
+          same folder: {"verdict": "APPROVED"} only if both say APPROVED,
+          otherwise {"verdict": "REVISE", "blocking": [...]} with the
+          blocking findings from both. Reply with one line per reviewer.
+
+  - type: step
+    id: verify
+    agent: wf-coder
+    modelId: deepseek-3.2
+    prompt: >
+      Final check. Don't change any code. Run the full test suite and every
+      check command in {{artifacts.plan}}, including the build. Then go
+      through the acceptance criteria in {{artifacts.brief}} one by one and
+      confirm each is met, citing file:line.
+
+      Write .kiro/workflow-output/issue-to-deploy/pr-body.md with: a short
+      summary, "Closes #<issue number>", what changed, how it was tested
+      with the command results, and the security review result.
+
+      Finish with send_message severity success if everything passes and
+      every criterion is met. Otherwise use severity error and list what's
+      missing.
+
+  - type: step
+    id: ship
+    agent: wf-coder
+    modelId: claude-haiku-4.5
+    prompt: >
+      Push the current branch with `git push -u origin HEAD`. Open a draft
+      pull request with `gh pr create --draft --title "<short title> (#<issue
+      number>)" --body-file .kiro/workflow-output/issue-to-deploy/pr-body.md`,
+      or reuse the one that's already open for this branch. Then wait for CI
+      with `gh pr checks --watch`. If the command stops before the checks
+      finish, run it again.
+
+      If gh reports no checks for the branch, the repository has no CI for
+      it: say so and finish with send_message severity success and the PR
+      URL. If a check fails, read its log, fix the cause, commit, push, and
+      watch again. Stop after three tries. Finish with send_message severity
+      success and the PR URL once every check passes, or severity error with
+      the failing check and what you tried.
+
+  - type: step
+    id: deploy
+    agent: wf-coder
+    modelId: claude-haiku-4.5
+    completion:
+      completionSignal: success
+    prompt: >
+      Deploy this branch to staging. How this project deploys: {{deploy}}
+
+      Before you deploy anything, call send_message with severity warning:
+      say what you're about to deploy and where, and ask for a go-ahead.
+      Wait for a reply. If the answer isn't a clear yes, don't deploy, and
+      finish with send_message severity success saying it was skipped.
+
+      Once you have a yes, deploy and run any smoke test the deploy notes
+      mention. Finish with send_message severity success and the staging
+      URL or the deploy output. If the deploy fails, use severity error and
+      include the error. Never deploy to production in this step.
