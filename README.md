@@ -18,7 +18,7 @@ Workflow recipes for [Kiro](https://kiro.dev). A recipe is a small file that tel
 | ship | Pushes, opens a draft PR, waits for CI | Claude Haiku 4.5 |
 | deploy | Asks you, then deploys to staging | Claude Haiku 4.5 |
 
-Build, the two reviews, and the gate repeat until both reviewers approve, up to three rounds. The two reviews run side by side, each in a fresh session. The run never merges and never deploys to production.
+Build, the two reviews, and the gate repeat until both reviewers approve, up to three rounds. The two reviews run side by side, each in a fresh session. If CI fails, the run stops before deploying. It never merges and never deploys to production.
 
 ### What you need
 
@@ -26,16 +26,19 @@ Build, the two reviews, and the gate repeat until both reviewers approve, up to 
 - git, a GitHub remote, and the GitHub CLI (`gh`) installed and signed in.
 - Access to the models in the recipe. Haiku 4.5 and Sonnet 5 need a paid Kiro plan, and some of the others are marked Experimental. Check each `modelId` against your model picker, or delete the line to use your chat's model.
 
-### Add it to a project
+### Install it
 
 ```sh
-mkdir -p .kiro/workflows
+# Save the recipe where every project can use it
+mkdir -p ~/.kiro/workflows
 curl -fsSL https://raw.githubusercontent.com/Poobalan1210/kiro-workflows/main/workflows/issue-to-deploy.workflow.yaml \
-  -o .kiro/workflows/issue-to-deploy.workflow.yaml
-printf '\n.kiro/workflow-output/\n' >> .gitignore
+  -o ~/.kiro/workflows/issue-to-deploy.workflow.yaml
+
+# In your project: keep the run notes out of git
+echo ".kiro/workflow-output/" >> .git/info/exclude
 ```
 
-Read the recipe before you run it. It runs commands, commits, and pushes a branch.
+Read the recipe before you run it. It runs commands, commits, and pushes a branch. To share it with your team, commit it to `.kiro/workflows/` on your default branch instead.
 
 ### Run it
 
