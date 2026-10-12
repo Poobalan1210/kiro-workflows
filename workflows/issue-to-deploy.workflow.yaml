@@ -175,7 +175,7 @@ steps:
   - type: step
     id: verify
     agent: wf-coder
-    modelId: deepseek-3.2
+    modelId: minimax-m2.5
     prompt: >
       Final check. Don't change any code. Run the full test suite and every
       check command in {{artifacts.plan}}, including the build. Then go

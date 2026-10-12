@@ -14,7 +14,7 @@ Workflow recipes for [Kiro](https://kiro.dev). A recipe is a small file that tel
 | code-review | Checks the change against the issue and runs the tests itself | Claude Sonnet 5 |
 | security-review | Looks for vulnerabilities and runs your audit tools | GLM-5 |
 | gate | Approves only if both reviews approve | Claude Haiku 4.5 |
-| verify | Runs every check and writes the PR description | DeepSeek 3.2 |
+| verify | Runs every check and writes the PR description | MiniMax M2.5 |
 | ship | Pushes, opens a draft PR, waits for CI | Claude Haiku 4.5 |
 | deploy | Asks you, then deploys to staging | Claude Haiku 4.5 |
 
@@ -24,17 +24,21 @@ Build, the two reviews, and the gate repeat until both reviewers approve, up to 
 
 - Kiro with Workflows turned on. In the IDE, open Workspace Configuration (in Agent Focus), choose Workflows, and switch it on.
 - git, a GitHub remote, and the GitHub CLI (`gh`) installed and signed in.
-- Access to the models in the recipe. Haiku 4.5 and Sonnet 5 need a paid Kiro plan, and some of the others are marked Experimental. Check each `modelId` against your model picker, or delete the line to use your chat's model.
+- Access to the models in the recipe. Haiku 4.5 and Sonnet 5 need a paid Kiro plan, and Qwen3 Coder Next is marked Experimental. Check each `modelId` against your model picker, or delete the line to use your chat's model.
 
 ### Install it
 
+Download the recipe into your Kiro folder, so every project can use it:
+
 ```sh
-# Save the recipe where every project can use it
 mkdir -p ~/.kiro/workflows
 curl -fsSL https://raw.githubusercontent.com/Poobalan1210/kiro-workflows/main/workflows/issue-to-deploy.workflow.yaml \
   -o ~/.kiro/workflows/issue-to-deploy.workflow.yaml
+```
 
-# In your project: keep the run notes out of git
+From each project's root folder, keep the run notes out of git:
+
+```sh
 echo ".kiro/workflow-output/" >> .git/info/exclude
 ```
 
@@ -42,9 +46,11 @@ Read the recipe before you run it. It runs commands, commits, and pushes a branc
 
 ### Run it
 
-Start from an up-to-date default branch with a clean working tree, then ask in a Kiro chat:
+Start from an up-to-date default branch with a clean working tree. Open a new Kiro chat and ask:
 
 > Run the issue-to-deploy workflow for issue 142. To deploy, run `make deploy-staging`, then check that https://staging.example.com/health returns 200.
+
+Each step also gets a copy of what you typed in the chat that started the run, so a new chat keeps the steps focused on the issue.
 
 To work on several issues at once, give each one its own git worktree and open it in its own Kiro window.
 
