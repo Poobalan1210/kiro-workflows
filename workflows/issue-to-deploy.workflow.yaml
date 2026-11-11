@@ -187,6 +187,12 @@ steps:
       with the command results, and the result of the security review in
       security-review.json in the same folder.
 
+      Then add an "Open review findings" section. List every finding with
+      severity minor from code-review.json and security-review.json as a
+      task list item, "- [ ] file:line: issue. Suggested fix: fix", and
+      say which reviewer raised it. The run didn't fix these, so whoever
+      reviews the PR needs to see them. If there are none, write "None."
+
       Finish with send_message severity success if everything passes and
       every criterion is met. Otherwise use severity error and list what's
       missing.

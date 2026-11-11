@@ -14,7 +14,7 @@ Workflow recipes for [Kiro](https://kiro.dev). A recipe is a small file that tel
 | code-review | Checks the change against the issue and runs the tests itself | Claude Sonnet 5 |
 | security-review | Looks for vulnerabilities and runs your audit tools | GLM-5 |
 | gate | Approves only if both reviews approve | Claude Haiku 4.5 |
-| verify | Runs every check and writes the PR description | MiniMax M2.5 |
+| verify | Runs every check and writes the PR description, listing any minor review findings left open | MiniMax M2.5 |
 | ship | Pushes, opens a draft PR, waits for CI | Claude Haiku 4.5 |
 | deploy | Asks you, then deploys to staging | Claude Haiku 4.5 |
 
